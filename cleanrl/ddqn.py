@@ -100,19 +100,7 @@ class QNetwork(nn.Module):
 
     def forward(self, x):
         return self.network(x)
-class TQNetwork(nn.Module):
-    def __init__(self, env):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
-            nn.ReLU(),
-            nn.Linear(120, 84),
-            nn.ReLU(),
-            nn.Linear(84, env.single_action_space.n),
-        )
 
-    def forward(self, x):
-        return self.network(x)
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -167,7 +155,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     q_network = QNetwork(envs).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = TQNetwork(envs).to(device)
+    target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     rb = ReplayBuffer(
@@ -216,7 +204,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step % args.train_frequency == 0:
                 data = rb.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
+                    _,action_max = q_network(data.next_observations).max(dim=1)
+                    target_max = target_network(data.next_observations).gather(1, action_max.unsqueeze(1)).squeeze()
                     td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
